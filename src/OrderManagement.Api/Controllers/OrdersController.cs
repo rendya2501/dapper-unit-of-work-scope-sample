@@ -27,7 +27,8 @@ public class OrdersController(IOrderService orderService) : ControllerBase
     [HttpPost]
     [ProducesResponseType(typeof(CreateOrderResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest request)
+    public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest request,
+        CancellationToken cancellationToken)
     {
         // バリデーションは ValidationFilter が自動実行
         // エラーは ProblemDetailsMiddleware が自動変換
@@ -36,7 +37,7 @@ public class OrdersController(IOrderService orderService) : ControllerBase
             .Select(i => new OrderItem(i.ProductId, i.Quantity))
             .ToList();
 
-        var result = await orderService.CreateOrderAsync(request.CustomerId, items);
+        var result = await orderService.CreateOrderAsync(request.CustomerId, items, cancellationToken);
 
         return result.ToActionResult(this, orderId => CreatedAtAction(
             nameof(GetOrderById),

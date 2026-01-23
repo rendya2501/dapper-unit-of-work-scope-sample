@@ -36,7 +36,11 @@ public class InventoryService(
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<int>> CreateAsync(string productName, int stock, decimal unitPrice)
+    public async Task<OperationResult<int>> CreateAsync(
+        string productName,
+        int stock,
+        decimal unitPrice,
+        CancellationToken cancellationToken)
     {
         return await uow.ExecuteInTransactionAsync(async () =>
         {
@@ -55,11 +59,16 @@ public class InventoryService(
             });
 
             return Outcome.Success(productId);
-        });
+        }, cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult> UpdateAsync(int productId, string productName, int stock, decimal unitPrice)
+    public async Task<OperationResult> UpdateAsync(
+        int productId,
+        string productName,
+        int stock,
+        decimal unitPrice,
+        CancellationToken cancellationToken)
     {
         return await uow.ExecuteInTransactionAsync(async () =>
         {
@@ -79,11 +88,11 @@ public class InventoryService(
             });
 
             return Outcome.Success();
-        });
+        }, cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult> DeleteAsync(int productId)
+    public async Task<OperationResult> DeleteAsync(int productId,CancellationToken cancellationToken)
     {
         return await uow.ExecuteInTransactionAsync(async () =>
         {
@@ -103,6 +112,6 @@ public class InventoryService(
             });
 
             return Outcome.Success();
-        });
+        }, cancellationToken);
     }
 }

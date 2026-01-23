@@ -43,10 +43,10 @@ public class InventoryController(IInventoryService inventoryService) : Controlle
     [HttpPost]
     [ProducesResponseType(typeof(CreateInventoryResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> Create([FromBody] CreateInventoryRequest request)
+    public async Task<IActionResult> Create([FromBody] CreateInventoryRequest request, CancellationToken cancellationToken)
     {
         var result = await inventoryService.CreateAsync(
-            request.ProductName, request.Stock, request.UnitPrice);
+            request.ProductName, request.Stock, request.UnitPrice, cancellationToken);
 
         return result.ToActionResult(this, productId => CreatedAtAction(
             nameof(GetByProductId),
@@ -61,10 +61,10 @@ public class InventoryController(IInventoryService inventoryService) : Controlle
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> Update(int productId, [FromBody] UpdateInventoryRequest request)
+    public async Task<IActionResult> Update(int productId, [FromBody] UpdateInventoryRequest request, CancellationToken cancellationToken)
     {
         var result = await inventoryService.UpdateAsync(
-            productId, request.ProductName, request.Stock, request.UnitPrice);
+            productId, request.ProductName, request.Stock, request.UnitPrice, cancellationToken);
 
         return result.ToActionResult(this, NoContent);
     }
@@ -75,9 +75,9 @@ public class InventoryController(IInventoryService inventoryService) : Controlle
     [HttpDelete("{productId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> Delete(int productId)
+    public async Task<IActionResult> Delete(int productId, CancellationToken cancellationToken)
     {
-        var result = await inventoryService.DeleteAsync(productId);
+        var result = await inventoryService.DeleteAsync(productId, cancellationToken);
 
         return result.ToActionResult(this, NoContent);
     }

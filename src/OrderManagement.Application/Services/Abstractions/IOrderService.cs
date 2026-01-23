@@ -15,7 +15,7 @@ public interface IOrderService
     /// <param name="customerId">顧客ID</param>
     /// <param name="items">注文する商品と数量のリスト</param>
     /// <returns>作成された注文ID</returns>
-    Task<OperationResult<int>> CreateOrderAsync(int customerId, List<OrderItem> items);
+    Task<OperationResult<int>> CreateOrderAsync(int customerId, List<OrderItem> items, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// すべての注文を取得します

@@ -27,7 +27,10 @@ public class OrderService(
     IAuditLogRepository auditLog) : IOrderService
 {
     /// <inheritdoc />
-    public async Task<OperationResult<int>> CreateOrderAsync(int customerId, List<OrderItem> items)
+    public async Task<OperationResult<int>> CreateOrderAsync(
+        int customerId, 
+        List<OrderItem> items,
+        CancellationToken cancellationToken)
     {
         return await uow.ExecuteInTransactionAsync(async () =>
         {
@@ -81,7 +84,7 @@ public class OrderService(
             });
 
             return Outcome.Success(orderId);
-        });
+        }, cancellationToken);
     }
 
     /// <inheritdoc />

@@ -21,15 +21,24 @@ public interface IInventoryService
     /// <summary>
     /// 在庫を作成します
     /// </summary>
-    Task<OperationResult<int>> CreateAsync(string productName, int stock, decimal unitPrice);
+    Task<OperationResult<int>> CreateAsync(
+        string productName,
+        int stock,
+        decimal unitPrice,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 在庫を更新します
     /// </summary>
-    Task<OperationResult> UpdateAsync(int productId, string productName, int stock, decimal unitPrice);
+    Task<OperationResult> UpdateAsync(
+        int productId,
+        string productName,
+        int stock,
+        decimal unitPrice,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 在庫を削除します
     /// </summary>
-    Task<OperationResult> DeleteAsync(int productId);
+    Task<OperationResult> DeleteAsync(int productId, CancellationToken cancellationToken = default);
 }
