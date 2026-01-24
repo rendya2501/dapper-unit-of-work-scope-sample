@@ -112,9 +112,9 @@ public class ProblemDetailsMiddleware(
     /// <returns>ProblemDetails の type フィールドに設定する URI</returns>
     private static string GetProblemType(int statusCode) => statusCode switch
     {
-        500 => "https://tools.ietf.org/html/rfc7231#section-6.6.1",
-        503 => "https://tools.ietf.org/html/rfc7231#section-6.6.4",
-        504 => "https://tools.ietf.org/html/rfc7231#section-6.6.5",
+        StatusCodes.Status500InternalServerError => "https://tools.ietf.org/html/rfc7231#section-6.6.1",
+        StatusCodes.Status503ServiceUnavailable => "https://tools.ietf.org/html/rfc7231#section-6.6.4",
+        StatusCodes.Status504GatewayTimeout => "https://tools.ietf.org/html/rfc7231#section-6.6.5",
         _ => "https://tools.ietf.org/html/rfc7231"
     };
 }

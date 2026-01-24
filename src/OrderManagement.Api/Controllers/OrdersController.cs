@@ -50,9 +50,9 @@ public class OrdersController(IOrderService orderService) : ControllerBase
     /// </summary>
     [HttpGet]
     [ProducesResponseType(typeof(IEnumerable<Order>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetAllOrders()
+    public async Task<IActionResult> GetAllOrders(CancellationToken cancellationToken)
     {
-        var result = await orderService.GetAllOrdersAsync();
+        var result = await orderService.GetAllOrdersAsync(cancellationToken);
         return result.ToActionResult(this, Ok);
     }
 
@@ -62,9 +62,9 @@ public class OrdersController(IOrderService orderService) : ControllerBase
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(Order), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetOrderById(int id)
+    public async Task<IActionResult> GetOrderById(int id, CancellationToken cancellationToken)
     {
-        var result = await orderService.GetOrderByIdAsync(id);
+        var result = await orderService.GetOrderByIdAsync(id, cancellationToken);
         return result.ToActionResult(this, Ok);
     }
 }

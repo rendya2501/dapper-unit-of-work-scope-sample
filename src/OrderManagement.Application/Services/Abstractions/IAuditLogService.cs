@@ -12,6 +12,9 @@ public interface IAuditLogService
     /// すべての監査ログを取得します
     /// </summary>
     /// <param name="limit">取得件数の上限（デフォルト: 100）</param>
+    /// <param name="cancellationToken">キャンセルトークン</param>
     /// <returns>監査ログのリスト（新しい順）</returns>
-    Task<OperationResult<IEnumerable<AuditLog>>> GetAllAsync(int limit = 100);
+    Task<OperationResult<IEnumerable<AuditLog>>> GetAllAsync(
+        int limit = 100,
+        CancellationToken cancellationToken = default);
 }

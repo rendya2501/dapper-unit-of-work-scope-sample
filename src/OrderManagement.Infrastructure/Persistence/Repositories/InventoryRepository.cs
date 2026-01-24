@@ -22,35 +22,61 @@ public class InventoryRepository(IDbSession session)
     : IInventoryRepository
 {
     /// <inheritdoc />
-    public async Task<Inventory?> GetByProductIdAsync(int productId)
+    public async Task<Inventory?> GetByProductIdAsync(
+        int productId,
+        CancellationToken cancellationToken = default)
     {
         const string sql = "SELECT * FROM Inventory WHERE ProductId = @ProductId";
 
-        return await session.Connection.QueryFirstOrDefaultAsync<Inventory>(
-            sql, new { ProductId = productId }, session.Transaction);
+        var command = new CommandDefinition(
+            sql,
+            new { ProductId = productId },
+            session.Transaction,
+            cancellationToken: cancellationToken);
+
+        return await session.Connection.QueryFirstOrDefaultAsync<Inventory>(command);
     }
 
     /// <inheritdoc />
-    public async Task<IEnumerable<Inventory>> GetAllAsync()
+    public async Task<IEnumerable<Inventory>> GetAllAsync(CancellationToken cancellationToken = default)
     {
         const string sql = "SELECT * FROM Inventory ORDER BY ProductId";
 
-        return await session.Connection.QueryAsync<Inventory>(sql, session.Transaction);
+        var command = new CommandDefinition(
+            sql,
+            session.Transaction,
+            cancellationToken: cancellationToken);
+
+        return await session.Connection.QueryAsync<Inventory>(command);
     }
 
     /// <inheritdoc />
-    public async Task<int> CreateAsync(Inventory inventory)
+    public async Task<int> CreateAsync(
+        Inventory inventory,
+        CancellationToken cancellationToken = default)
     {
         const string sql = """
             INSERT INTO Inventory (ProductName, Stock, UnitPrice)
             VALUES (@ProductName, @Stock, @UnitPrice);
             SELECT last_insert_rowid();
             """;
-        return await session.Connection.ExecuteScalarAsync<int>(sql, inventory, session.Transaction);
+
+        var command = new CommandDefinition(
+            sql,
+            inventory,
+            session.Transaction,
+            cancellationToken: cancellationToken);
+
+        return await session.Connection.ExecuteScalarAsync<int>(command);
     }
 
     /// <inheritdoc />
-    public async Task UpdateAsync(int productId, string productName, int stock, decimal unitPrice)
+    public async Task UpdateAsync(
+        int productId,
+        string productName,
+        int stock,
+        decimal unitPrice,
+        CancellationToken cancellationToken = default)
     {
         const string sql = """
             UPDATE Inventory 
@@ -58,25 +84,43 @@ public class InventoryRepository(IDbSession session)
             WHERE ProductId = @ProductId
             """;
 
-        await session.Connection.ExecuteAsync(sql,
+        var command = new CommandDefinition(
+            sql,
             new { ProductId = productId, ProductName = productName, Stock = stock, UnitPrice = unitPrice },
-            session.Transaction);
+            session.Transaction,
+            cancellationToken: cancellationToken);
+
+        await session.Connection.ExecuteAsync(command);
     }
 
     /// <inheritdoc />
-    public async Task<int> UpdateStockAsync(int productId, int newStock)
+    public async Task<int> UpdateStockAsync(
+        int productId,
+        int newStock,
+        CancellationToken cancellationToken = default)
     {
         const string sql = "UPDATE Inventory SET Stock = @Stock WHERE ProductId = @ProductId";
 
-        return await session.Connection.ExecuteAsync(
-            sql, new { ProductId = productId, Stock = newStock }, session.Transaction);
+        var command = new CommandDefinition(
+            sql,
+            new { ProductId = productId, Stock = newStock },
+            session.Transaction,
+            cancellationToken: cancellationToken);
+
+        return await session.Connection.ExecuteAsync(command);
     }
 
     /// <inheritdoc />
-    public async Task DeleteAsync(int productId)
+    public async Task DeleteAsync(int productId, CancellationToken cancellationToken = default)
     {
         const string sql = "DELETE FROM Inventory WHERE ProductId = @ProductId";
 
-        await session.Connection.ExecuteAsync(sql, new { ProductId = productId }, session.Transaction);
+        var command = new CommandDefinition(
+            sql,
+            new { ProductId = productId },
+            session.Transaction,
+            cancellationToken: cancellationToken);
+
+        await session.Connection.ExecuteAsync(command);
     }
 }

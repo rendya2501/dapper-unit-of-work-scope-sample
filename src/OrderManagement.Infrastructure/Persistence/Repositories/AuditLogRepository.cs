@@ -12,18 +12,24 @@ public class AuditLogRepository(IDbSession session)
     : IAuditLogRepository
 {
     /// <inheritdoc />
-    public async Task CreateAsync(AuditLog log)
+    public async Task CreateAsync(AuditLog log, CancellationToken cancellationToken = default)
     {
         const string sql = """
             INSERT INTO AuditLog (Action, Details, CreatedAt)
             VALUES (@Action, @Details, @CreatedAt)
             """;
 
-        await session.Connection.ExecuteAsync(sql, log, session.Transaction);
+        var command = new CommandDefinition(
+            sql,
+            log,
+            session.Transaction,
+            cancellationToken: cancellationToken);
+
+        await session.Connection.ExecuteAsync(command);
     }
 
     /// <inheritdoc />
-    public async Task<IEnumerable<AuditLog>> GetAllAsync(int limit = 100)
+    public async Task<IEnumerable<AuditLog>> GetAllAsync(int limit = 100, CancellationToken cancellationToken = default)
     {
         const string sql = """
             SELECT * FROM AuditLog 
@@ -31,7 +37,12 @@ public class AuditLogRepository(IDbSession session)
             LIMIT @Limit
             """;
 
-        return await session.Connection.QueryAsync<AuditLog>(
-            sql, new { Limit = limit }, session.Transaction);
+        var command = new CommandDefinition(
+            sql,
+            new { Limit = limit },
+            session.Transaction,
+            cancellationToken: cancellationToken);
+
+        return await session.Connection.QueryAsync<AuditLog>(command);
     }
 }

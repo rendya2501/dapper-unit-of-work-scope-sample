@@ -36,7 +36,9 @@ public class OrderService(
         {
             if (items.Count == 0)
             {
-                return Outcome.BusinessRule("", "Order must have at least one item.");
+                return Outcome.BusinessRule(
+                    BusinessErrorCode.InvalidQuantity.ToErrorCode(),
+                    "Order must have at least one item.");
             }
 
             // 1. 注文集約を構築
@@ -57,7 +59,8 @@ public class OrderService(
 
                 if (productEntity.Stock < item.Quantity)
                 {
-                    return Outcome.BusinessRule("",
+                    return Outcome.BusinessRule(
+                        BusinessErrorCode.InsufficientStock.ToErrorCode(),
                         $"Insufficient stock for {productEntity.ProductName}. " +
                         $"Available: {productEntity.Stock}, Requested: {item.Quantity}");
                 }
@@ -88,16 +91,18 @@ public class OrderService(
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<IEnumerable<Order>>> GetAllOrdersAsync()
+    public async Task<OperationResult<IEnumerable<Order>>> GetAllOrdersAsync(
+        CancellationToken cancellationToken = default)
     {
-        var orders = await order.GetAllAsync();
+        var orders = await order.GetAllAsync(cancellationToken);
         return Outcome.Success(orders);
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<Order>> GetOrderByIdAsync(int id)
+    public async Task<OperationResult<Order>> GetOrderByIdAsync(int id,
+        CancellationToken cancellationToken = default)
     {
-        var orderEntity = await order.GetByIdAsync(id);
+        var orderEntity = await order.GetByIdAsync(id, cancellationToken);
         if (orderEntity is null)
         {
             return Outcome.NotFound($"Order not found for id: {id}");

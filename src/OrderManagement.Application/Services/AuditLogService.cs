@@ -11,9 +11,11 @@ namespace OrderManagement.Application.Services;
 public class AuditLogService(IAuditLogRepository repository) : IAuditLogService
 {
     /// <inheritdoc />
-    public async Task<OperationResult<IEnumerable<AuditLog>>> GetAllAsync(int limit = 100)
+    public async Task<OperationResult<IEnumerable<AuditLog>>> GetAllAsync(
+        int limit = 100,
+        CancellationToken cancellationToken = default)
     {
-        var auditLogs = await repository.GetAllAsync(limit);
+        var auditLogs = await repository.GetAllAsync(limit, cancellationToken);
         return Outcome.Success(auditLogs);
     }
 }
