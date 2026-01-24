@@ -27,7 +27,7 @@ public class OrdersController(IOrderService orderService) : ControllerBase
     [HttpPost]
     [ProducesResponseType(typeof(CreateOrderResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest request,
+    public async Task<IActionResult> CreateOrderAsync([FromBody] CreateOrderRequest request,
         CancellationToken cancellationToken)
     {
         // バリデーションは ValidationFilter が自動実行
@@ -40,7 +40,7 @@ public class OrdersController(IOrderService orderService) : ControllerBase
         var result = await orderService.CreateOrderAsync(request.CustomerId, items, cancellationToken);
 
         return result.ToActionResult(this, orderId => CreatedAtAction(
-            nameof(GetOrderById),
+            nameof(GetOrderByIdAsync),
             new { id = orderId },
             new CreateOrderResponse(orderId)));
     }
@@ -50,7 +50,7 @@ public class OrdersController(IOrderService orderService) : ControllerBase
     /// </summary>
     [HttpGet]
     [ProducesResponseType(typeof(IEnumerable<Order>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetAllOrders(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetAllOrdersAsync(CancellationToken cancellationToken)
     {
         var result = await orderService.GetAllOrdersAsync(cancellationToken);
         return result.ToActionResult(this, Ok);
@@ -62,7 +62,7 @@ public class OrdersController(IOrderService orderService) : ControllerBase
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(Order), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetOrderById(int id, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetOrderByIdAsync(int id, CancellationToken cancellationToken)
     {
         var result = await orderService.GetOrderByIdAsync(id, cancellationToken);
         return result.ToActionResult(this, Ok);

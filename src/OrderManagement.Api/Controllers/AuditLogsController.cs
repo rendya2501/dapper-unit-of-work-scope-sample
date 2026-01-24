@@ -19,7 +19,7 @@ public class AuditLogsController(IAuditLogService auditLogService) : ControllerB
     /// <returns>監査ログのリスト（新しい順）</returns>
     [HttpGet]
     [ProducesResponseType(typeof(IEnumerable<AuditLog>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetAll([FromQuery] int limit = 100, CancellationToken cancellationToken = default)
+    public async Task<IActionResult> GetAllAsync([FromQuery] int limit = 100, CancellationToken cancellationToken = default)
     {
         var logs = await auditLogService.GetAllAsync(limit, cancellationToken);
         return logs.ToActionResult(this, Ok);

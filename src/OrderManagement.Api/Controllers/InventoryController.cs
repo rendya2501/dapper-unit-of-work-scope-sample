@@ -19,7 +19,7 @@ public class InventoryController(IInventoryService inventoryService) : Controlle
     /// </summary>
     [HttpGet]
     [ProducesResponseType(typeof(IEnumerable<Inventory>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetAll(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetAllAsync(CancellationToken cancellationToken)
     {
         var inventories = await inventoryService.GetAllAsync(cancellationToken);
         return inventories.ToActionResult(this, Ok);
@@ -31,7 +31,7 @@ public class InventoryController(IInventoryService inventoryService) : Controlle
     [HttpGet("{productId}", Name = "GetByProductId")]
     [ProducesResponseType(typeof(Inventory), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetByProductId(int productId, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetByProductIdAsync(int productId, CancellationToken cancellationToken)
     {
         var inventory = await inventoryService.GetByProductIdAsync(productId, cancellationToken);
         return inventory.ToActionResult(this, Ok);
@@ -43,14 +43,14 @@ public class InventoryController(IInventoryService inventoryService) : Controlle
     [HttpPost]
     [ProducesResponseType(typeof(CreateInventoryResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> Create([FromBody] CreateInventoryRequest request,
+    public async Task<IActionResult> CreateAsync([FromBody] CreateInventoryRequest request,
         CancellationToken cancellationToken)
     {
         var result = await inventoryService.CreateAsync(
             request.ProductName, request.Stock, request.UnitPrice, cancellationToken);
 
         return result.ToActionResult(this, productId => CreatedAtAction(
-            nameof(GetByProductId),
+            nameof(GetByProductIdAsync),
             new { productId },
             new CreateInventoryResponse(productId)));
     }
@@ -62,7 +62,7 @@ public class InventoryController(IInventoryService inventoryService) : Controlle
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> Update(int productId, [FromBody] UpdateInventoryRequest request,
+    public async Task<IActionResult> UpdateAsync(int productId, [FromBody] UpdateInventoryRequest request,
         CancellationToken cancellationToken)
     {
         var result = await inventoryService.UpdateAsync(
@@ -77,7 +77,7 @@ public class InventoryController(IInventoryService inventoryService) : Controlle
     [HttpDelete("{productId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> Delete(int productId, CancellationToken cancellationToken)
+    public async Task<IActionResult> DeleteAsync(int productId, CancellationToken cancellationToken)
     {
         var result = await inventoryService.DeleteAsync(productId, cancellationToken);
 
