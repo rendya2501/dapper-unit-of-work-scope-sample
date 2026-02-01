@@ -179,7 +179,7 @@ cd Dapper.UnitOfWork.Sample
 ### 2. プロジェクトを実行
 
 ```bash
-cd src/OrderManagement.Api
+cd src/Web.Api
 dotnet run
 ```
 
@@ -435,65 +435,65 @@ public class OrdersController(IOrderService orderService) : ControllerBase
 ```
 Dapper.UnitOfWork.ModernSample/
 │
-├── OrderManagement.Api/                      # Presentation層
-│   ├── Controllers/                          # APIエンドポイント
-│   ├── Contracts/                            # Request/Response DTO
-│   ├── Extensions/                           # Result→IActionResult変換
-│   ├── Filters/                              # FluentValidation自動実行
-│   ├── Middleware/                           # 例外→ProblemDetails変換
-│   └── Program.cs                            # DI設定・起動
+├── Web.Api/                            # Presentation層
+│   ├── Controllers/                    # APIエンドポイント
+│   ├── Contracts/                      # Request/Response DTO
+│   ├── Extensions/                     # Result→IActionResult変換
+│   ├── Filters/                        # FluentValidation自動実行
+│   ├── Middleware/                     # 例外→ProblemDetails変換
+│   └── Program.cs                      # DI設定・起動
 │
-├── OrderManagement.Application/              # Application層
-│   ├── Common/                               # 共通インターフェース
-│   │   ├── IDbSession.cs                    # 読み取り専用アクセサー
-│   │   ├── IDbSessionManager.cs             # 管理用アクセサー
-│   │   └── IUnitOfWork.cs                   # トランザクション管理
-│   ├── Models/                               # アプリケーション層DTO
-│   ├── Repositories/                         # Repositoryインターフェース
-│   └── Services/                             # ビジネスロジック実装
+├── Application/                        # Application層
+│   ├── Common/                         # 共通インターフェース
+│   │   ├── IDbSession.cs               # 読み取り専用アクセサー
+│   │   ├── IDbSessionManager.cs        # 管理用アクセサー
+│   │   └── IUnitOfWork.cs              # トランザクション管理
+│   ├── Models/                         # アプリケーション層DTO
+│   ├── Repositories/                   # Repositoryインターフェース
+│   └── Services/                       # ビジネスロジック実装
 │
-├── OrderManagement.Domain/                   # Domain層
-│   ├── Common/Results/                       # Result型定義
-│   │   ├── OperationResult.cs               # 成功/失敗の型
-│   │   ├── OperationError.cs                # エラー種別の型
-│   │   ├── Outcome.cs                       # Resultファクトリ
-│   │   └── BusinessErrorCode.cs             # ビジネスエラーコード定義
-│   ├── Entities/                             # ドメインエンティティ
-│   └── Exceptions/                           # ドメイン例外
+├── Domain/                             # Domain層
+│   ├── Common/Results/                 # Result型定義
+│   │   ├── OperationResult.cs          # 成功/失敗の型
+│   │   ├── OperationError.cs           # エラー種別の型
+│   │   ├── Outcome.cs                  # Resultファクトリ
+│   │   └── BusinessErrorCode.cs        # ビジネスエラーコード定義
+│   ├── Entities/                       # ドメインエンティティ
+│   └── Exceptions/                     # ドメイン例外
 │
-└── OrderManagement.Infrastructure/           # Infrastructure層
+└── Infrastructure/                     # Infrastructure層
     ├── Persistence/
-    │   ├── UnitOfWork.cs                    # トランザクション実装
-    │   ├── DbSession.cs                     # 接続・トランザクション保持
-    │   ├── Repositories/                    # Repository実装
+    │   ├── UnitOfWork.cs               # トランザクション実装
+    │   ├── DbSession.cs                # 接続・トランザクション保持
+    │   ├── Repositories/               # Repository実装
     │   └── Database/
-    │       └── DatabaseInitializer.cs       # スキーマ初期化
+    │       └── DatabaseInitializer.cs  # スキーマ初期化
 ```
 
 ### レイヤーの責務
 
-#### 1. **Presentation層（OrderManagement.Api）**
+#### 1. **Web.Api）**
 
 - HTTP要求/応答の処理
 - バリデーション（FluentValidation）
 - Result型→HTTPステータスコード変換
 - 例外→ProblemDetails変換
 
-#### 2. **Application層（OrderManagement.Application）**
+#### 2. **Application層（Application）**
 
 - ビジネスロジックの実装
 - トランザクション境界の定義
 - 複数Repositoryの協調
 - Result型によるエラーハンドリング
 
-#### 3. **Domain層（OrderManagement.Domain）**
+#### 3. **Domain層（Domain）**
 
 - ビジネスルールの定義
 - エンティティとバリューオブジェクト
 - ドメインイベント
 - Result型とエラーコード定義
 
-#### 4. **Infrastructure層（OrderManagement.Infrastructure）**
+#### 4. **Infrastructure層（Infrastructure）**
 
 - データアクセスの実装
 - トランザクション管理の実装

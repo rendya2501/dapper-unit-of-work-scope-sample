@@ -2,7 +2,7 @@
 using Dapper;
 using Microsoft.AspNetCore.Mvc;
 
-namespace OrderManagement.Api.Controllers;
+namespace Web.Api.Controllers;
 
 
 /// <summary>
