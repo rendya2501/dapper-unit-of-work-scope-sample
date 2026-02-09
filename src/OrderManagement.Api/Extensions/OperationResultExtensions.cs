@@ -13,46 +13,34 @@ public static class OperationResultExtensions
     /// <summary>
     /// 値を持つ操作結果を <see cref="IActionResult"/> に変換します。
     /// </summary>
-    /// <typeparam name="T">操作結果に含まれる値の型</typeparam>
-    /// <param name="result">変換元の操作結果</param>
-    /// <param name="controller">現在のコントローラーインスタンス</param>
-    /// <param name="onSuccess">成功時（値あり）に実行されるアクション。通常は <c>Ok(value)</c> や <c>CreatedAtAction(...)</c> を指定します。</param>
-    /// <returns>
-    /// 成功時は <paramref name="onSuccess"/> の結果、
-    /// SuccessEmpty の場合は 204 No Content、
-    /// 失敗時はエラー内容に応じた適切な HTTP ステータスコードの結果を返します。
-    /// </returns>
     public static IActionResult ToActionResult<T>(
         this OperationResult<T> result,
         ControllerBase controller,
         Func<T, IActionResult> onSuccess)
     {
-        return result.Match(
-            onSuccess: onSuccess,
-            onSuccessEmpty: controller.NoContent,
-            onFailure: failure => HandleError(controller, failure));
+        return result.IsSuccess
+            ? onSuccess(result.Value)
+            : HandleError(controller, result.Error!);
+        //return result.Match(
+        //    onSuccess: onSuccess,
+        //    onFailure: failure => HandleError(controller, failure));
     }
 
     /// <summary>
     /// 値を持たない操作結果を <see cref="IActionResult"/> に変換します。
     /// </summary>
-    /// <param name="result">変換元の操作結果</param>
-    /// <param name="controller">現在のコントローラーインスタンス</param>
-    /// <param name="onSuccess">
-    /// 成功時に実行されるアクション。省略した場合は 204 No Content を返します。
-    /// </ tank>
-    /// <returns>
-    /// 成功時は <paramref name="onSuccess"/> の結果（または 204 No Content）、
-    /// 失敗時はエラー内容に応じた適切な HTTP ステータスコードの結果を返します。
-    /// </returns>
     public static IActionResult ToActionResult(
         this OperationResult result,
         ControllerBase controller,
         Func<IActionResult>? onSuccess = null)
     {
-        return result.Match(
-            onSuccess: onSuccess ?? (() => controller.NoContent()),
-            onFailure: failure => HandleError(controller, failure));
+        return result.IsSuccess
+            ? onSuccess?.Invoke() ?? controller.NoContent()
+            : HandleError(controller, result.Error!);
+
+        //return result.Match(
+        //    onSuccess: onSuccess ?? (() => controller.NoContent()),
+        //    onFailure: failure => HandleError(controller, failure));
     }
 
     /// <summary>

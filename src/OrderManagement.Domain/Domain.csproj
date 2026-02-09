@@ -6,4 +6,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <None Remove="Common\Results\OperationResult.cs.backup" />
+  </ItemGroup>
+
 </Project>
