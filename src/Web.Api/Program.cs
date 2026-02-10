@@ -1,67 +1,26 @@
-using Application.Common;
-using Application.Repositories;
-using Application.Services;
-using FluentValidation;
-using Infrastructure.Persistence;
+using Infrastructure;
 using Infrastructure.Persistence.Database;
-using Infrastructure.Persistence.Repositories;
-using Microsoft.Data.Sqlite;
+using Application;
 using Scalar.AspNetCore;
 using System.Data;
-using Web.Api.ExceptionHandlers;
-using Web.Api.Filters;
+using Web.Api;
 using Web.Api.Middleware;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. 設定の取得
-// appsettings.json から接続文字列を取得
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
-
-// 2. DI 登録 (Infrastructure / Database)
-// 先に IDbConnection を登録することで、後続の DbSession で再利用可能にする
-builder.Services.AddScoped<IDbConnection>(sp => new SqliteConnection(connectionString));
-// DbSession
-builder.Services.AddScoped<DbSession>();
-// IDbSessionManager (UnitOfWork用)
-builder.Services.AddScoped<IDbSessionManager>(sp => sp.GetRequiredService<DbSession>());
-// IDbSession (リポジトリ用)
-builder.Services.AddScoped<IDbSession>(sp => sp.GetRequiredService<DbSession>());
-// UnitOfWork
-builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
-
-// 3. DI 登録 (Repositories / Services)
-// Repositories
-builder.Services.AddScoped<IAuditLogRepository, AuditLogRepository>();
-builder.Services.AddScoped<IInventoryRepository, InventoryRepository>();
-builder.Services.AddScoped<IOrderRepository, OrderRepository>();
-
-// Services
-builder.Services.AddScoped<AuditLogService>();
-builder.Services.AddScoped<InventoryService>();
-builder.Services.AddScoped<OrderService>();
-
-// 4. DI 登録 (Framework / Web)
-builder.Services.AddControllers(options =>
-{
-    // グローバルに ValidationFilter を適用
-    options.Filters.Add<ValidationFilter>();
-});
-builder.Services.AddOpenApi();
-// FluentValidation（Validator のみ登録）
-builder.Services.AddValidatorsFromAssemblyContaining<Program>();
-
-// 特定の例外を先に登録
-builder.Services.AddExceptionHandler<ValidationExceptionHandler>();
-// グローバルハンドラーを最後に登録
-builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
-builder.Services.AddProblemDetails();
+// ===================================================================
+// 各レイヤーの依存性注入を設定
+// ==================================================================
+builder.Services
+    .AddInfrastructure(builder.Configuration)
+    .AddApplication()
+    .AddPresentation();
 
 // アプリケーションのビルド
 var app = builder.Build();
 
-// 5. データベースの初期化 (app.Build() の後で実行)
+// DB初期化
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
@@ -79,7 +38,6 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-// 6. ミドルウェア / パイプライン設定
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
@@ -89,7 +47,6 @@ if (app.Environment.IsDevelopment())
 // ミドルウェア（例外ハンドリング用）
 app.UseMiddleware<ProblemDetailsMiddleware>();
 app.UseHttpsRedirection();
-//app.UseAuthorization();
 app.MapControllers();
 
 app.Run();

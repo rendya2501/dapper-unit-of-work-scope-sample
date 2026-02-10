@@ -1,4 +1,6 @@
-﻿using Web.Api.ExceptionHandlers;
+﻿using FluentValidation;
+using Web.Api.ExceptionHandlers;
+using Web.Api.Filters;
 
 namespace Web.Api;
 
@@ -14,6 +16,12 @@ public static class DependencyInjection
     /// <returns>IServiceCollection</returns>
     public static IServiceCollection AddPresentation(this IServiceCollection services)
     {
+        // Controllers + ValidationFilter
+        services.AddControllers(options =>
+        {
+            options.Filters.Add<ValidationFilter>();
+        });
+
         // ===================================================================
         // OpenAPI
         // ===================================================================
@@ -21,13 +29,14 @@ public static class DependencyInjection
         services.AddOpenApi();
 
 
+        // FluentValidation
+        services.AddValidatorsFromAssemblyContaining<Program>();
+
         // ===================================================================
         // 例外ハンドラー（順序が重要！）
         // ===================================================================
-        // 特定の例外を先に登録
-        services.AddExceptionHandler<ValidationExceptionHandler>();
-        // グローバルハンドラーを最後に登録
-        services.AddExceptionHandler<GlobalExceptionHandler>();
+        services.AddExceptionHandler<ValidationExceptionHandler>();// 特定の例外を先に登録
+        services.AddExceptionHandler<GlobalExceptionHandler>();// グローバルハンドラーを最後に登録
         services.AddProblemDetails();
 
 
