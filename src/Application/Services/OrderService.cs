@@ -35,11 +35,9 @@ public class OrderService(
     {
         return await uow.ExecuteInTransactionAsync(async () =>
         {
+            // 注文アイテムが空の場合はエラー
             if (items.Count == 0)
             {
-                //return Result.BusinessRule(
-                //    BusinessErrorCode.InvalidQuantity.ToErrorCode(),
-                //    "Order must have at least one item.");
                 return Result.Failure<int>(OrderErrors.EmptyOrder());
             }
 
@@ -59,12 +57,9 @@ public class OrderService(
                     return Result.Failure<int>(InventoryErrors.NotFoundByProductId(item.ProductId));
                 }
 
+                // 在庫確認 (十分な在庫がない場合はエラー)
                 if (productEntity.Stock < item.Quantity)
                 {
-                    //return Result.BusinessRule(
-                    //    BusinessErrorCode.InsufficientStock.ToErrorCode(),
-                    //    $"Insufficient stock for {productEntity.ProductName}. " +
-                    //    $"Available: {productEntity.Stock}, Requested: {item.Quantity}");
                     return Result.Failure<int>(
                         OrderErrors.InsufficientStock(item.ProductId, productEntity.Stock, item.Quantity));
                 }
