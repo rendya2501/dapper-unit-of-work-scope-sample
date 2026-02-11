@@ -30,6 +30,12 @@ public static class ResultHttpExtensions
             value => new OkObjectResult(value),
             failure => ErrorToProblemMapper.ToActionResult(failure.Error!));
 
+
+    public static IActionResult ToOk<T, TResponse>(this Result<T> result, Func<T, TResponse> mapper) =>
+        result.Match(
+            value => new OkObjectResult(mapper(value)),
+            failure => ErrorToProblemMapper.ToActionResult(failure.Error!));
+
     /// <summary>
     /// 成功時に 204 No Content、失敗時に ProblemDetails を返します
     /// </summary>
