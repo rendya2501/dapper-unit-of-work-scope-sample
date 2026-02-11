@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Mvc;
 using Web.Api.Contracts.Requests;
 using Web.Api.Contracts.Responses;
 using Web.Api.Extensions;
-using Web.Api.Infrastructure;
 
 namespace Web.Api.Controllers;
 
