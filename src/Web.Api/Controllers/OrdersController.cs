@@ -36,10 +36,6 @@ public class OrdersController(OrderService orderService) : ControllerBase
 
         var result = await orderService.CreateOrderAsync(request.CustomerId, items, cancellationToken);
 
-        //return result.ToCreatedAtRoute(
-        //    nameof(GetOrderByIdAsync),
-        //    routeValuesSelector: orderId => new { id = orderId },
-        //    responseSelector: orderId => new CreateOrderResponse(orderId));
         return result.ToResult(
             orderId => CreatedAtRoute(
                 nameof(GetOrderByIdAsync),
