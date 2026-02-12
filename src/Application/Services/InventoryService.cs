@@ -7,10 +7,10 @@ using Domain.Inventory;
 namespace Application.Services;
 
 /// <summary>
-/// 在庫サービスの実装
+/// 在庫サービス
 /// </summary>
 /// <remarks>
-/// 在庫管理のビジネスロジックを実装します。
+/// 在庫管理のビジネスロジック
 /// </remarks>
 public class InventoryService(
     IUnitOfWork uow,

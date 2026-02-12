@@ -5,7 +5,7 @@ using Domain.Common.Results;
 namespace Application.Services;
 
 /// <summary>
-/// 監査ログサービスの実装
+/// 監査ログサービス
 /// </summary>
 public class AuditLogService(IAuditLogRepository repository)
 {

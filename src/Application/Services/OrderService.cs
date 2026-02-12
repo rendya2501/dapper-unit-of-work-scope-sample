@@ -9,10 +9,10 @@ using Domain.Orders;
 namespace Application.Services;
 
 /// <summary>
-/// 注文サービスの実装
+/// 注文サービス
 /// </summary>
 /// <remarks>
-/// <para><strong>ビジネスロジックの実装場所</strong></para>
+/// <para><strong>ビジネスロジック</strong></para>
 /// <list type="bullet">
 /// <item>在庫確認・減算</item>
 /// <item>注文集約の構築</item>
