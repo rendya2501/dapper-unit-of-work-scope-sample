@@ -15,7 +15,8 @@ namespace Web.Api.Filters;
 /// <item>.NET のバージョンアップに影響されない</item>
 /// </list>
 /// </remarks>
-public class ValidationFilter(IServiceProvider serviceProvider) : IAsyncActionFilter
+public class ValidationFilter(IServiceProvider serviceProvider) 
+    : IAsyncActionFilter
 {
     /// <inheritdoc />
     public async Task OnActionExecutionAsync(
@@ -25,7 +26,10 @@ public class ValidationFilter(IServiceProvider serviceProvider) : IAsyncActionFi
         // すべての引数に対してバリデーションを実行
         foreach (var argument in context.ActionArguments)
         {
-            if (argument.Value == null) continue;
+            if (argument.Value == null)
+            {
+                continue;
+            }
 
             var argumentType = argument.Value.GetType();
 
@@ -39,7 +43,9 @@ public class ValidationFilter(IServiceProvider serviceProvider) : IAsyncActionFi
                 var validationResult = await validator.ValidateAsync(validationContext);
 
                 if (!validationResult.IsValid)
+                {
                     throw new ValidationException(validationResult.Errors);
+                }
             }
         }
 
