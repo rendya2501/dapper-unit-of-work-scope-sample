@@ -1,6 +1,6 @@
-﻿# Dapper Unit of Work Modern Sample
+# Dapper Unit of Work Scope Sample
 
-**Result型ベースの自動トランザクション管理による、モダンで安全なDapperアプリケーション設計**
+**スコープベースのセッション管理と Result 型による、安全で構造的な Dapper アプリケーション設計**
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-purple)](https://dotnet.microsoft.com/)
 [![C#](https://img.shields.io/badge/C%23-13-blue)](https://docs.microsoft.com/en-us/dotnet/csharp/)
@@ -11,93 +11,166 @@
 
 ## 🎯 このプロジェクトについて
 
-Dapperを使用した**実務で即採用可能な**Unit of Workパターンの実装サンプルです。
+Dapper を使用した **実務で即採用可能な** Unit of Work パターンの実装サンプルです。
+
+本サンプルの核心は **「スコープ」** にあります。DI の Scoped ライフタイム、`IDbSession`/`IDbSessionManager` の責務分離、`AsyncLocal` による非同期スコープの追跡、この 3 つを組み合わせることで、トランザクション管理を構造的に安全にします。
 
 ### 主な特徴
 
-- ✅ **Result型による自動トランザクション制御** - 成功/失敗を型で表現し、Commit/Rollbackを自動化
-- ✅ **完全な接続管理** - UnitOfWorkが接続のライフサイクル全体を責任管理
-- ✅ **2重トランザクション検出** - 設計違反を実行時に即座に検出
-- ✅ **クリーンアーキテクチャ** - 層間の責務を明確に分離
-- ✅ **包括的なエラーハンドリング** - ビジネスエラーから技術的エラーまで統一的に処理
+- ✅ **スコープベースのセッション管理** — `IDbSession`（読み取り専用）と `IDbSessionManager`（管理用）を分離し、Repository と UnitOfWork それぞれに適切な権限を付与
+- ✅ **Result 型による自動トランザクション制御** — 成功/失敗を型で表現し、Commit/Rollback を自動化
+- ✅ **完全な接続管理** — UnitOfWork が接続のライフサイクル全体を責任管理
+- ✅ **2 重トランザクション検出** — `AsyncLocal` で非同期境界を跨いでも設計違反を実行時に即座に検出
+- ✅ **クリーンアーキテクチャ** — 層間の責務を明確に分離
+- ✅ **包括的なエラーハンドリング** — ビジネスエラーから技術的エラーまで統一的に処理
 
-### なぜこのサンプルを作ったのか
+### なぜ「スコープ」が重要なのか
 
-従来のDapper実装では以下の問題が頻発します：
+従来の Dapper 実装では以下の問題が頻発します：
 
 ❌ **トランザクション管理の問題**
-- Commit/Rollbackの書き忘れ
-- 例外時のRollback漏れ
+- Commit/Rollback の書き忘れ
+- 例外時の Rollback 漏れ
 - 複数サービス呼び出しでのトランザクション重複
 
-❌ **エラーハンドリングの問題**
-- 例外とビジネスエラーの混在
-- 404/400/409の判断が曖昧
-- フロントエンドでのエラー処理の複雑化
+❌ **接続管理の問題**
+- Repository が接続を直接持つと、同一リクエスト内でトランザクションを共有できない
+- 接続の Open/Close のタイミングが分散する
 
-本プロジェクトは**Result型とUnitOfWorkパターン**を組み合わせることで、これらの問題を構造的に解決します。
+本プロジェクトは **DbSession を Scoped で管理し、UnitOfWork に接続ライフサイクルを委譲する** ことで、これらの問題を構造的に解決します。
+
+---
+
+## 🔑 スコープ設計の核心
+
+### DbSession：接続とトランザクションの保持役
+
+```csharp
+public class DbSession(IDbConnection connection) : IDbSessionManager
+{
+    public IDbConnection Connection => connection;
+    public IDbTransaction? Transaction { get; set; }
+}
+```
+
+`DbSession` は **接続とトランザクションを保持するだけ** のシンプルなクラスです。ライフサイクル管理は UnitOfWork に完全委譲します。
+
+### 2 つのインターフェースによる権限分離
+
+```csharp
+// Repository 用：読み取り専用（Transaction の set 不可）
+public interface IDbSession
+{
+    IDbConnection Connection { get; }
+    IDbTransaction? Transaction { get; }
+}
+
+// UnitOfWork 用：管理用（Transaction の set が可能）
+public interface IDbSessionManager : IDbSession
+{
+    new IDbTransaction? Transaction { get; set; }
+}
+```
+
+Repository は `IDbSession` のみ受け取るため、トランザクションを勝手に開始・終了できません。UnitOfWork だけが `IDbSessionManager` を通じてトランザクションを制御します。
+
+### DI 登録（具象クラスを 1 回だけ登録）
+
+```csharp
+// DbSession を1回だけ登録
+services.AddScoped<DbSession>();
+
+// IDbSessionManager → DbSession（UnitOfWork 用）
+services.AddScoped<IDbSessionManager>(sp => sp.GetRequiredService<DbSession>());
+
+// IDbSession → DbSession（Repository 用）
+services.AddScoped<IDbSession>(sp => sp.GetRequiredService<DbSession>());
+```
+
+同一リクエスト内では `DbSession` の同一インスタンスが共有されるため、複数の Repository が同じ接続・トランザクションを自動的に使用します。
 
 ---
 
 ## 📦 採用パターン：Result-Driven UoW
 
-このプロジェクトでは**Result型ベースのUnit of Work**を採用しています。
+### サービス層の実装例
 
 ```csharp
-// サービス層：ビジネスロジックに集中
-public async Task<OperationResult<int>> CreateOrderAsync(
-    int customerId, 
-    List<OrderItem> items,
-    CancellationToken cancellationToken)
+public class OrderService(
+    IUnitOfWork uow,
+    IInventoryRepository inventoryRepo,
+    IOrderRepository orderRepo,
+    IAuditLogRepository auditLogRepo) : IOrderService
 {
-    return await _uow.ExecuteInTransactionAsync(async () =>
+    public async Task<Result<int>> CreateOrderAsync(
+        int customerId,
+        List<OrderItem> items,
+        CancellationToken cancellationToken)
     {
-        // ビジネスバリデーション
-        if (items.Count == 0)
-            return Outcome.BusinessRule(
-                BusinessErrorCode.EmptyOrder.ToErrorCode(),
-                "Order must have at least one item.");
+        return await uow.ExecuteInTransactionAsync(async () =>
+        {
+            // 1. ビジネスバリデーション
+            if (items.Count == 0)
+                return Result.Failure<int>(OrderErrors.EmptyOrder());
 
-        // 在庫確認
-        var inventory = await _inventory.GetByProductIdAsync(productId);
-        if (inventory is null)
-            return Outcome.NotFound($"Product {productId} not found");
-        
-        if (inventory.Stock < quantity)
-            return Outcome.BusinessRule(
-                BusinessErrorCode.InsufficientStock.ToErrorCode(),
-                $"Available: {inventory.Stock}, Requested: {quantity}");
+            // 2. 注文集約を構築
+            var orderResult = Order.Create(customerId);
+            if (orderResult.IsFailure)
+                return Result.Failure<int>(orderResult.Error!);
 
-        // 在庫減算
-        await _inventory.UpdateStockAsync(productId, inventory.Stock - quantity);
+            var order = orderResult.Value;
 
-        // 注文作成
-        var orderId = await _order.CreateAsync(order);
+            // 3. 各商品の在庫確認と減算
+            foreach (var item in items)
+            {
+                var inventory = await inventoryRepo.GetByProductIdAsync(item.ProductId, cancellationToken);
+                if (inventory is null)
+                    return Result.Failure<int>(InventoryErrors.NotFoundByProductId(item.ProductId));
 
-        // 監査ログ
-        await _auditLog.CreateAsync(new AuditLog { /* ... */ });
+                var decreaseResult = inventory.Decrease(item.Quantity);
+                if (decreaseResult.IsFailure)
+                    return Result.Failure<int>(decreaseResult.Error!);
 
-        // ✅ 成功を返す → UoWが自動Commit
-        return Outcome.Success(orderId);
-        
-        // ❌ エラーを返す → UoWが自動Rollback
-        // 例外発生 → UoWが自動Rollback + 例外再スロー
-    }, cancellationToken);
+                await inventoryRepo.UpdateStockAsync(item.ProductId, inventory.Stock, cancellationToken);
+
+                var addDetailResult = order.AddDetail(new ProductId(item.ProductId), item.Quantity, inventory.UnitPrice);
+                if (addDetailResult.IsFailure)
+                    return Result.Failure<int>(addDetailResult.Error!);
+            }
+
+            // 4. 注文を永続化
+            var orderId = await orderRepo.CreateAsync(order, cancellationToken);
+
+            // 5. 監査ログ記録
+            await auditLogRepo.CreateAsync(new AuditLogRecord
+            {
+                Action = "ORDER_CREATED",
+                Details = $"OrderId={orderId}, CustomerId={customerId}, Items={items.Count}",
+                CreatedAt = DateTime.UtcNow
+            }, cancellationToken);
+
+            // ✅ 成功を返す → UoW が自動 Commit
+            return Result.Success(orderId);
+
+            // ❌ Failure を返す → UoW が自動 Rollback
+            // 例外発生 → UoW が自動 Rollback + 例外再スロー
+
+        }, cancellationToken);
+    }
 }
 ```
 
 ### なぜこの設計が優れているのか
 
-#### 1. **トランザクション制御の自動化**
+#### 1. トランザクション制御の自動化
 
 ```csharp
 // ❌ 従来の方法：手動管理が必要
-await using var uow = _unitOfWorkFactory();
 uow.BeginTransaction();
 try
 {
-    await uow.Orders.CreateAsync(order);
-    await uow.Inventory.UpdateStockAsync(productId, newStock);
+    await orderRepo.CreateAsync(order);
+    await inventoryRepo.UpdateStockAsync(productId, newStock);
     await uow.CommitAsync();  // ← 書き忘れリスク
 }
 catch
@@ -106,57 +179,88 @@ catch
     throw;
 }
 
-// ✅ Result型ベース：自動管理
-return await _uow.ExecuteInTransactionAsync(async () =>
+// ✅ Result 型ベース：自動管理
+return await uow.ExecuteInTransactionAsync(async () =>
 {
-    await _order.CreateAsync(order);
-    await _inventory.UpdateStockAsync(productId, newStock);
-    return Outcome.Success(); // → 自動Commit
-    // エラー時は自動Rollback
+    await orderRepo.CreateAsync(order);
+    await inventoryRepo.UpdateStockAsync(productId, newStock);
+    return Result.Success(orderId); // → 自動 Commit
+    // Failure を返す / 例外発生 → 自動 Rollback
 }, cancellationToken);
 ```
 
-#### 2. **ビジネスエラーと技術的エラーの明確な分離**
+#### 2. ビジネスエラーと技術的エラーの明確な分離
 
 ```csharp
-// ビジネスエラー：Resultで表現
-if (stock < quantity)
-    return Outcome.BusinessRule(
-        BusinessErrorCode.InsufficientStock.ToErrorCode(),
-        "Insufficient stock");  // → 400 Bad Request (INSUFFICIENT_STOCK)
+// ビジネスエラー：Result で表現（ドメイン層でエラー定義）
+if (inventory is null)
+    return Result.Failure<int>(InventoryErrors.NotFoundByProductId(productId)); // → 404
 
-// 技術的エラー：例外で表現
-var data = await CallExternalApiAsync();  // → 例外発生 → 500 Internal Server Error
+var decreaseResult = inventory.Decrease(item.Quantity);
+if (decreaseResult.IsFailure)
+    return Result.Failure<int>(decreaseResult.Error!); // → 400（在庫不足）
+
+// 技術的エラー：例外で表現（そのまま再スロー）
+var data = await externalApiAsync(); // → 例外発生 → 500
 ```
 
-#### 3. **型安全な成功/失敗の判定**
+#### 3. Error 型の定義
 
 ```csharp
-var result = await service.CreateOrderAsync(customerId, items);
+// SharedKernel/Primitives/Error.cs
+public static Error NotFound(string code, string description) => ...  // → 404
+public static Error Problem(string code, string description) => ...   // → 400
+public static Error Conflict(string code, string description) => ...  // → 409
+public static Error Failure(string code, string description) => ...   // → 500
 
-// パターンマッチングで処理分岐
-return result.Match(
-    onSuccess: orderId => CreatedAtAction(...),
-    onSuccessEmpty: () => NoContent(),
-    onFailure: error => HandleError(error)  // 404/400/409など自動判定
-);
+// ドメイン層でエラーをまとめて定義する
+public static class InventoryErrors
+{
+    public static Error NotFoundByProductId(int productId) => Error.NotFound(
+        "Inventory.NotFound",
+        $"Inventory not found for productId: {productId}");
+}
+
+public static class OrderErrors
+{
+    public static Error EmptyOrder() => Error.Problem(
+        "Order.EmptyOrder",
+        "Order must have at least one item.");
+
+    public static Error InsufficientStock(int productId, int available, int requested) =>
+        Error.Problem(
+            "Order.InsufficientStock",
+            $"ProductId={productId}, Available={available}, Requested={requested}");
+}
 ```
 
-#### 4. **フロントエンドでのエラーハンドリングが容易**
+#### 4. Controller 層での変換
 
-```typescript
-// フロントエンド (TypeScript)
-try {
-    const response = await createOrder(customerId, items);
-    // 成功処理
-} catch (error) {
-    if (error.status === 400 && error.code === 'INSUFFICIENT_STOCK') {
-        showNotification('在庫不足です。数量を減らしてください。');
-    } else if (error.status === 404) {
-        showNotification('商品が見つかりません。');
-    } else {
-        showNotification('予期しないエラーが発生しました。');
-    }
+```csharp
+[HttpPost]
+public async Task<IActionResult> CreateOrderAsync(
+    [FromBody] CreateOrderRequest request,
+    CancellationToken cancellationToken)
+{
+    var items = request.Items
+        .Select(i => new OrderItem(i.ProductId, i.Quantity))
+        .ToList();
+
+    var result = await orderService.CreateOrderAsync(request.CustomerId, items, cancellationToken);
+
+    // 拡張メソッドで自動変換
+    return result.ToResult(
+        orderId => CreatedAtRoute(
+            nameof(GetOrderByIdAsync),
+            new { id = orderId },
+            new CreateOrderResponse(orderId)));
+
+    // ↓ 以下のように自動変換される
+    // Success    → 201 Created
+    // NotFound   → 404 Not Found
+    // Problem    → 400 Bad Request
+    // Conflict   → 409 Conflict
+    // Failure    → 500 Internal Server Error
 }
 ```
 
@@ -166,14 +270,14 @@ try {
 
 ### 前提条件
 
-- .NET 10.0 SDK以上
-- 任意のIDE（Visual Studio / Rider / VS Code）
+- .NET 10.0 SDK 以上
+- 任意の IDE（Visual Studio / Rider / VS Code）
 
 ### 1. リポジトリをクローン
 
 ```bash
-git clone https://github.com/rendya2501/Dapper.UnitOfWork.Sample.git
-cd Dapper.UnitOfWork.Sample
+git clone https://github.com/rendya2501/dapper-unit-of-work-scope-sample.git
+cd dapper-unit-of-work-scope-sample
 ```
 
 ### 2. プロジェクトを実行
@@ -183,9 +287,9 @@ cd src/Web.Api
 dotnet run
 ```
 
-### 3. APIを試す
+### 3. API を試す
 
-ブラウザで http://localhost:5076/scalar/v1 を開く
+ブラウザで `http://localhost:5076/scalar/v1` を開く
 
 **または**
 
@@ -211,73 +315,62 @@ curl http://localhost:5076/api/auditlogs
 
 ## 📖 基本的な使い方
 
-### DI登録
+### DI 登録
 
 ```csharp
-// Program.cs
-var connectionString = builder.Configuration
-    .GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("Connection string not found.");
+// Program.cs → Infrastructure/DependencyInjection.cs
 
-// IDbConnectionを登録
-builder.Services.AddScoped<IDbConnection>(sp => 
-    new SqliteConnection(connectionString));
+// IDbConnection を Scoped で登録
+services.AddScoped<IDbConnection>(sp => new SqliteConnection(connectionString));
 
-// DbSessionを登録（接続とトランザクションの保持役）
-builder.Services.AddScoped<DbSession>();
+// DbSession（具象クラスを 1 回だけ登録）
+services.AddScoped<DbSession>();
 
-// IDbSessionManagerとIDbSessionの両方をDbSessionで解決
-builder.Services.AddScoped<IDbSessionManager>(sp => 
-    sp.GetRequiredService<DbSession>());
-builder.Services.AddScoped<IDbSession>(sp => 
-    sp.GetRequiredService<DbSession>());
+// IDbSessionManager（UnitOfWork 用）
+services.AddScoped<IDbSessionManager>(sp => sp.GetRequiredService<DbSession>());
 
-// UnitOfWorkを登録
-builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+// IDbSession（Repository 用）
+services.AddScoped<IDbSession>(sp => sp.GetRequiredService<DbSession>());
 
-// Repositoriesを登録
-builder.Services.AddScoped<IOrderRepository, OrderRepository>();
-builder.Services.AddScoped<IInventoryRepository, InventoryRepository>();
-builder.Services.AddScoped<IAuditLogRepository, AuditLogRepository>();
+// UnitOfWork
+services.AddScoped<IUnitOfWork, UnitOfWork>();
 
-// Servicesを登録
-builder.Services.AddScoped<IOrderService, OrderService>();
-builder.Services.AddScoped<IInventoryService, InventoryService>();
-builder.Services.AddScoped<IAuditLogService, AuditLogService>();
+// Repositories
+services.AddScoped<IAuditLogRepository, AuditLogRepository>();
+services.AddScoped<IInventoryRepository, InventoryRepository>();
+services.AddScoped<IOrderRepository, OrderRepository>();
 ```
 
-### Service層での実装
+### Service 層での実装
 
-#### パターン1：読み取り専用操作（トランザクション不要）
+#### パターン 1：読み取り専用操作（トランザクション不要）
 
 ```csharp
-public class OrderService(
-    IOrderRepository order) : IOrderService
+public class OrderService(IOrderRepository orderRepo) : IOrderService
 {
-    public async Task<OperationResult<Order>> GetOrderByIdAsync(
+    public async Task<Result<Order>> GetOrderByIdAsync(
         int id,
         CancellationToken cancellationToken = default)
     {
-        // トランザクション不要な読み取り操作
-        var orderEntity = await order.GetByIdAsync(id, cancellationToken);
-        
-        if (orderEntity is null)
-            return Outcome.NotFound($"Order {id} not found");
-        
-        return Outcome.Success(orderEntity);
+        var order = await orderRepo.GetByIdAsync(id, cancellationToken);
+
+        if (order is null)
+            return Result.Failure<Order>(OrderErrors.NotFoundByOrderId(id));
+
+        return Result.Success(order);
     }
 }
 ```
 
-#### パターン2：単一Repository操作（トランザクション必要）
+#### パターン 2：単一 Repository 操作（トランザクション必要）
 
 ```csharp
 public class InventoryService(
     IUnitOfWork uow,
-    IInventoryRepository inventory,
-    IAuditLogRepository auditLog) : IInventoryService
+    IInventoryRepository inventoryRepo,
+    IAuditLogRepository auditLogRepo) : IInventoryService
 {
-    public async Task<OperationResult<int>> CreateAsync(
+    public async Task<Result<int>> CreateAsync(
         string productName,
         int stock,
         decimal unitPrice,
@@ -285,299 +378,33 @@ public class InventoryService(
     {
         return await uow.ExecuteInTransactionAsync(async () =>
         {
-            // 在庫作成
-            var productId = await inventory.CreateAsync(new Inventory
-            {
-                ProductName = productName,
-                Stock = stock,
-                UnitPrice = unitPrice
-            }, cancellationToken);
+            var createResult = Inventory.Create(productName, stock, unitPrice);
+            if (createResult.IsFailure)
+                return Result.Failure<int>(createResult.Error!);
 
-            // 監査ログ記録
-            await auditLog.CreateAsync(new AuditLog
+            var productId = await inventoryRepo.CreateAsync(createResult.Value, cancellationToken);
+
+            await auditLogRepo.CreateAsync(new AuditLogRecord
             {
                 Action = "INVENTORY_CREATED",
                 Details = $"ProductId={productId}, Name={productName}",
                 CreatedAt = DateTime.UtcNow
             }, cancellationToken);
 
-            return Outcome.Success(productId);
+            return Result.Success(productId);
         }, cancellationToken);
     }
 }
 ```
 
-#### パターン3：複数Repository横断操作（複雑なビジネスロジック）
+#### パターン 3：複数 Repository 横断操作（複雑なビジネスロジック）
+
+上記「採用パターン：Result-Driven UoW」の `CreateOrderAsync` を参照。
+
+### Repository 層での実装
 
 ```csharp
-public class OrderService(
-    IUnitOfWork uow,
-    IInventoryRepository inventory,
-    IOrderRepository order,
-    IAuditLogRepository auditLog) : IOrderService
-{
-    public async Task<OperationResult<int>> CreateOrderAsync(
-        int customerId, 
-        List<OrderItem> items,
-        CancellationToken cancellationToken)
-    {
-        return await uow.ExecuteInTransactionAsync(async () =>
-        {
-            // 1. ビジネスバリデーション
-            if (items.Count == 0)
-                return Outcome.BusinessRule(
-                    BusinessErrorCode.EmptyOrder.ToErrorCode(),
-                    "Order must have at least one item.");
-
-            // 2. 注文集約を構築
-            var orderEntity = new Order
-            {
-                CustomerId = customerId,
-                CreatedAt = DateTime.UtcNow
-            };
-
-            // 3. 各商品の在庫確認と注文明細追加
-            foreach (var item in items)
-            {
-                var product = await inventory.GetByProductIdAsync(item.ProductId);
-                
-                if (product is null)
-                    return Outcome.NotFound($"Product {item.ProductId} not found");
-                
-                if (product.Stock < item.Quantity)
-                    return Outcome.BusinessRule(
-                        BusinessErrorCode.InsufficientStock.ToErrorCode(),
-                        $"Insufficient stock for {product.ProductName}. " +
-                        $"Available: {product.Stock}, Requested: {item.Quantity}");
-
-                // 在庫減算
-                await inventory.UpdateStockAsync(
-                    item.ProductId,
-                    product.Stock - item.Quantity);
-
-                // 注文明細を追加
-                orderEntity.AddDetail(item.ProductId, item.Quantity, product.UnitPrice);
-            }
-
-            // 4. 注文を永続化
-            var orderId = await order.CreateAsync(orderEntity);
-
-            // 5. 監査ログ記録
-            await auditLog.CreateAsync(new AuditLog
-            {
-                Action = "ORDER_CREATED",
-                Details = $"OrderId={orderId}, CustomerId={customerId}, " +
-                          $"Items={items.Count}, Total={orderEntity.TotalAmount:C}",
-                CreatedAt = DateTime.UtcNow
-            });
-
-            return Outcome.Success(orderId);
-        }, cancellationToken);
-    }
-}
-```
-
-### Controller層での実装
-
-```csharp
-[ApiController]
-[Route("api/[controller]")]
-public class OrdersController(IOrderService orderService) : ControllerBase
-{
-    [HttpPost]
-    [ProducesResponseType(typeof(CreateOrderResponse), StatusCodes.Status201Created)]
-    [ProducesResponseType(typeof(BusinessErrorResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> CreateOrderAsync(
-        [FromBody] CreateOrderRequest request,
-        CancellationToken cancellationToken)
-    {
-        var items = request.Items
-            .Select(i => new OrderItem(i.ProductId, i.Quantity))
-            .ToList();
-
-        var result = await orderService.CreateOrderAsync(
-            request.CustomerId, 
-            items, 
-            cancellationToken);
-
-        // 拡張メソッドで自動変換
-        return result.ToActionResult(this, orderId => CreatedAtAction(
-            nameof(GetOrderByIdAsync),
-            new { id = orderId },
-            new CreateOrderResponse(orderId)));
-        
-        // ↓ 以下のように自動変換される
-        // Success → 201 Created
-        // NotFound → 404 Not Found
-        // BusinessRule (INSUFFICIENT_STOCK) → 400 Bad Request + エラーコード
-        // ValidationFailed → 400 Bad Request + フィールドエラー
-        // Conflict → 409 Conflict
-    }
-
-    [HttpGet("{id}")]
-    public async Task<IActionResult> GetOrderByIdAsync(
-        int id, 
-        CancellationToken cancellationToken)
-    {
-        var result = await orderService.GetOrderByIdAsync(id, cancellationToken);
-        return result.ToActionResult(this, Ok);
-    }
-}
-```
-
----
-
-## 🏗️ アーキテクチャ
-
-### プロジェクト構成
-
-```
-Dapper.UnitOfWork.ModernSample/
-│
-├── Web.Api/                            # Presentation層
-│   ├── Controllers/                    # APIエンドポイント
-│   ├── Contracts/                      # Request/Response DTO
-│   ├── Extensions/                     # Result→IActionResult変換
-│   ├── Filters/                        # FluentValidation自動実行
-│   ├── Middleware/                     # 例外→ProblemDetails変換
-│   └── Program.cs                      # DI設定・起動
-│
-├── Application/                        # Application層
-│   ├── Common/                         # 共通インターフェース
-│   │   ├── IDbSession.cs               # 読み取り専用アクセサー
-│   │   ├── IDbSessionManager.cs        # 管理用アクセサー
-│   │   └── IUnitOfWork.cs              # トランザクション管理
-│   ├── Models/                         # アプリケーション層DTO
-│   ├── Repositories/                   # Repositoryインターフェース
-│   └── Services/                       # ビジネスロジック実装
-│
-├── Domain/                             # Domain層
-│   ├── Common/Results/                 # Result型定義
-│   │   ├── OperationResult.cs          # 成功/失敗の型
-│   │   ├── OperationError.cs           # エラー種別の型
-│   │   ├── Outcome.cs                  # Resultファクトリ
-│   │   └── BusinessErrorCode.cs        # ビジネスエラーコード定義
-│   ├── Entities/                       # ドメインエンティティ
-│   └── Exceptions/                     # ドメイン例外
-│
-└── Infrastructure/                     # Infrastructure層
-    ├── Persistence/
-    │   ├── UnitOfWork.cs               # トランザクション実装
-    │   ├── DbSession.cs                # 接続・トランザクション保持
-    │   ├── Repositories/               # Repository実装
-    │   └── Database/
-    │       └── DatabaseInitializer.cs  # スキーマ初期化
-```
-
-### レイヤーの責務
-
-#### 1. **Web.Api）**
-
-- HTTP要求/応答の処理
-- バリデーション（FluentValidation）
-- Result型→HTTPステータスコード変換
-- 例外→ProblemDetails変換
-
-#### 2. **Application層（Application）**
-
-- ビジネスロジックの実装
-- トランザクション境界の定義
-- 複数Repositoryの協調
-- Result型によるエラーハンドリング
-
-#### 3. **Domain層（Domain）**
-
-- ビジネスルールの定義
-- エンティティとバリューオブジェクト
-- ドメインイベント
-- Result型とエラーコード定義
-
-#### 4. **Infrastructure層（Infrastructure）**
-
-- データアクセスの実装
-- トランザクション管理の実装
-- 外部サービス連携
-- データベース初期化
-
-### 重要な設計パターン
-
-#### DbSession：接続とトランザクションの保持役
-
-```csharp
-public class DbSession(IDbConnection connection) : IDbSessionManager
-{
-    public IDbConnection Connection => connection;
-    public IDbTransaction? Transaction { get; set; }
-}
-```
-
-- **責務**：現在の接続とトランザクションを保持するだけ
-- **ライフサイクル管理**：UnitOfWorkに完全委譲
-- **2つのインターフェース**：
-  - `IDbSession`：読み取り専用（Repository用）
-  - `IDbSessionManager`：書き込み可能（UnitOfWork用）
-
-#### UnitOfWork：トランザクションのライフサイクル管理
-
-```csharp
-public class UnitOfWork(
-    IDbSessionManager sessionManager,
-    ILogger<UnitOfWork> logger) : IUnitOfWork
-{
-    public async Task<OperationResult<T>> ExecuteInTransactionAsync<T>(
-        Func<Task<OperationResult<T>>> operation,
-        CancellationToken cancellationToken = default)
-    {
-        // 2重スコープ検出
-        CheckNestedTransaction(IsInTransaction.Value);
-        IsInTransaction.Value = true;
-
-        try
-        {
-            // 1. 接続開始
-            await EnsureConnectionOpenAsync(cancellationToken);
-            
-            // 2. トランザクション開始
-            sessionManager.Transaction = await BeginTransactionAsync(cancellationToken);
-
-            // 3. 操作を実行
-            var result = await operation();
-
-            // 4. Resultに基づいて自動Commit/Rollback
-            if (result.IsSuccess)
-                await CommitTransactionAsync(sessionManager.Transaction, cancellationToken);
-            else
-                await RollbackTransactionAsync(sessionManager.Transaction, cancellationToken);
-
-            return result;
-        }
-        catch (Exception ex)
-        {
-            await RollbackTransactionAsync(sessionManager.Transaction, CancellationToken.None);
-            throw;
-        }
-        finally
-        {
-            await DisposeTransactionAsync(sessionManager.Transaction);
-            sessionManager.Transaction = null;
-            IsInTransaction.Value = false;
-        }
-    }
-
-    // Dispose時に接続も確実に閉じる
-    public void Dispose()
-    {
-        sessionManager.Transaction?.Dispose();
-        sessionManager.Connection.Close();
-        sessionManager.Connection.Dispose();
-    }
-}
-```
-
-#### Repository：純粋なデータアクセス
-
-```csharp
+// Repository は IDbSession のみ受け取る（トランザクション制御は一切しない）
 public class InventoryRepository(IDbSession session) : IInventoryRepository
 {
     public async Task<Inventory?> GetByProductIdAsync(
@@ -589,152 +416,133 @@ public class InventoryRepository(IDbSession session) : IInventoryRepository
         var command = new CommandDefinition(
             sql,
             new { ProductId = productId },
-            session.Transaction,  // ← UoWが管理するトランザクションを使用
+            session.Transaction,  // UoW が管理するトランザクションを透過的に使用
             cancellationToken: cancellationToken);
 
-        return await session.Connection.QueryFirstOrDefaultAsync<Inventory>(command);
-    }
+        var record = await session.Connection.QueryFirstOrDefaultAsync<InventoryRecord>(command);
 
-    // トランザクション管理は一切しない（UoWに完全委譲）
+        return record == null ? null : InventoryMapper.ToDomain(record);
+    }
 }
 ```
 
 ---
 
-## 💡 よくあるパターン
+## 🏗️ アーキテクチャ
 
-### パターン1：早期returnがあるトランザクション処理
+### プロジェクト構成
+
+```
+dapper-unit-of-work-scope-sample/
+│
+├── src/
+│   ├── Web.Api/                            # Presentation 層
+│   │   ├── Controllers/                    # API エンドポイント
+│   │   ├── Contracts/                      # Request/Response DTO
+│   │   ├── Extensions/                     # Result → IActionResult 変換
+│   │   │   ├── ResultExtensions.cs         # Match パターンマッチング
+│   │   │   ├── ResultHttpExtensions.cs     # ToOk / ToResult / ToNoContent
+│   │   │   └── ErrorToProblemMapper.cs     # Error → ProblemDetails 変換
+│   │   ├── ExceptionHandlers/              # 例外 → ProblemDetails 変換
+│   │   └── Program.cs                      # DI 設定・起動
+│   │
+│   ├── Application/                        # Application 層
+│   │   ├── Common/
+│   │   │   ├── IDbSession.cs               # 読み取り専用アクセサー（Repository 用）
+│   │   │   ├── IDbSessionManager.cs        # 管理用アクセサー（UnitOfWork 用）
+│   │   │   └── IUnitOfWork.cs              # トランザクション管理インターフェース
+│   │   ├── DTOs/                           # アプリケーション層 DTO
+│   │   ├── Repositories/                   # Repository インターフェース
+│   │   └── Services/                       # ビジネスロジック実装
+│   │
+│   ├── Domain/                             # Domain 層
+│   │   ├── Inventory/
+│   │   │   ├── Inventory.cs                # 在庫エンティティ（ファクトリ・ドメインロジック）
+│   │   │   ├── InventoryErrors.cs          # 在庫ドメインのエラー定義
+│   │   │   └── ProductId.cs               # 値オブジェクト
+│   │   └── Orders/
+│   │       ├── Order.cs                    # 注文エンティティ（集約ルート）
+│   │       ├── OrderDetail.cs             # 注文明細エンティティ
+│   │       ├── OrderErrors.cs             # 注文ドメインのエラー定義
+│   │       └── OrderId.cs                 # 値オブジェクト
+│   │
+│   ├── Infrastructure/                     # Infrastructure 層
+│   │   └── Persistence/
+│   │       ├── UnitOfWork.cs               # トランザクション実装
+│   │       ├── DbSession.cs                # 接続・トランザクション保持
+│   │       ├── Mappers/                    # ドメインモデル ↔ 永続化モデル変換
+│   │       ├── Models/                     # 永続化モデル（〇〇Record）
+│   │       ├── Repositories/              # Repository 実装
+│   │       └── Database/
+│   │           └── DatabaseInitializer.cs  # スキーマ初期化
+│   │
+│   └── SharedKernel/                       # 共有カーネル
+│       ├── Models/
+│       │   └── AuditLogRecord.cs          # 全層で共有するモデル
+│       └── Primitives/
+│           ├── Result.cs                   # Result / Result<T>
+│           ├── Error.cs                    # エラー情報（Code / Description / Type）
+│           ├── ErrorType.cs               # エラー分類（→ HTTP ステータスコード）
+│           └── ValidationError.cs         # バリデーションエラー集約
+│
+└── tests/                                  # テスト（準備中）
+```
+
+### レイヤーの責務
+
+#### Web.Api（Presentation 層）
+
+- HTTP 要求/応答の処理
+- バリデーション（FluentValidation）
+- `Result` → HTTP ステータスコード変換（`ToOk` / `ToResult` / `ToNoContent`）
+- 例外 → ProblemDetails 変換
+
+#### Application 層
+
+- ビジネスロジックの実装
+- トランザクション境界の定義
+- 複数 Repository の協調
+- `Result` 型によるエラーハンドリング
+
+#### Domain 層
+
+- ビジネスルールの定義（ファクトリメソッド・ドメインメソッド）
+- エンティティと値オブジェクト
+- エラー定義（`〇〇Errors` クラス）
+
+#### Infrastructure 層
+
+- データアクセスの実装（Dapper + Mapper パターン）
+- トランザクション管理の実装（`UnitOfWork`）
+- 接続スコープ管理（`DbSession`）
+- データベース初期化
+
+### ドメインモデルと永続化モデルの分離
+
+Infrastructure 層は Mapper を使用してドメインモデルと永続化モデル（`〇〇Record`）を完全に分離します。ドメイン層はデータベースの構造を知りません。
 
 ```csharp
-public async Task<OperationResult<int>> ProcessOrderAsync(
-    OrderRequest request,
-    CancellationToken cancellationToken)
+// 永続化モデル（DBテーブルと 1:1 対応）
+public record InventoryRecord
 {
-    return await _uow.ExecuteInTransactionAsync(async () =>
-    {
-        var inventory = await _inventory.GetByProductIdAsync(request.ProductId);
-        
-        // 在庫不足の場合は早期return
-        if (inventory.Stock < request.Quantity)
-            return Outcome.BusinessRule(
-                BusinessErrorCode.InsufficientStock.ToErrorCode(),
-                "Insufficient stock");  // → 自動Rollback
+    public int ProductId { get; init; }
+    public string ProductName { get; init; } = string.Empty;
+    public int Stock { get; init; }
+    public decimal UnitPrice { get; init; }
+}
 
-        // 通常処理
-        await _inventory.UpdateStockAsync(request.ProductId, inventory.Stock - request.Quantity);
-        var orderId = await _order.CreateAsync(order);
+// Mapper（Infrastructure 内部でのみ使用）
+internal static class InventoryMapper
+{
+    public static Inventory ToDomain(InventoryRecord record) =>
+        Inventory.Restore(new ProductId(record.ProductId), record.ProductName, record.Stock, record.UnitPrice);
 
-        return Outcome.Success(orderId);  // → 自動Commit
-    }, cancellationToken);
+    public static InventoryRecord ToRecord(Inventory inventory) =>
+        new() { ProductId = (int)inventory.ProductId, ProductName = inventory.ProductName, ... };
 }
 ```
 
-### パターン2：条件分岐が多い処理
-
-```csharp
-public async Task<OperationResult<ProcessResult>> ProcessComplexOrderAsync(
-    OrderRequest request,
-    CancellationToken cancellationToken)
-{
-    return await _uow.ExecuteInTransactionAsync(async () =>
-    {
-        // ステップ1：顧客確認
-        var customer = await _customer.GetByIdAsync(request.CustomerId);
-        if (customer is null)
-            return Outcome.NotFound($"Customer {request.CustomerId} not found");
-
-        // ステップ2：在庫確認
-        var inventory = await _inventory.GetByProductIdAsync(request.ProductId);
-        if (inventory is null)
-            return Outcome.NotFound($"Product {request.ProductId} not found");
-        
-        if (inventory.Stock < request.Quantity)
-            return Outcome.BusinessRule(
-                BusinessErrorCode.InsufficientStock.ToErrorCode(),
-                $"Available: {inventory.Stock}, Requested: {request.Quantity}");
-
-        // ステップ3：クーポン検証
-        if (request.CouponCode != null)
-        {
-            var coupon = await _coupon.GetByCodeAsync(request.CouponCode);
-            if (coupon is null || coupon.IsExpired)
-                return Outcome.BusinessRule(
-                    BusinessErrorCode.InvalidCoupon.ToErrorCode(),
-                    "Coupon is invalid or expired");
-        }
-
-        // ステップ4：注文作成
-        var orderId = await _order.CreateAsync(order);
-
-        return Outcome.Success(new ProcessResult 
-        { 
-            OrderId = orderId,
-            Status = "Completed" 
-        });
-    }, cancellationToken);
-}
-```
-
-### パターン3：外部API呼び出しとの組み合わせ
-
-```csharp
-public async Task<OperationResult<int>> ProcessOrderWithNotificationAsync(
-    OrderRequest request,
-    CancellationToken cancellationToken)
-{
-    // トランザクション内：DB操作のみ
-    var result = await _uow.ExecuteInTransactionAsync(async () =>
-    {
-        var orderId = await _order.CreateAsync(order);
-        await _inventory.UpdateStockAsync(request.ProductId, newStock);
-        return Outcome.Success(orderId);
-    }, cancellationToken);
-
-    // トランザクション外：外部API呼び出し
-    if (result.IsSuccess)
-    {
-        await _emailService.SendOrderConfirmationAsync(result.Value!);
-        await _smsService.SendNotificationAsync(result.Value!);
-    }
-
-    return result;
-}
-```
-
-### パターン4：バッチ処理
-
-```csharp
-public async Task<OperationResult<BatchResult>> ProcessBatchOrdersAsync(
-    List<OrderRequest> requests,
-    CancellationToken cancellationToken)
-{
-    return await _uow.ExecuteInTransactionAsync(async () =>
-    {
-        var results = new BatchResult();
-
-        foreach (var request in requests)
-        {
-            var inventory = await _inventory.GetByProductIdAsync(request.ProductId);
-            
-            if (inventory is null || inventory.Stock < request.Quantity)
-            {
-                results.Failed.Add(request.ProductId);
-                continue;
-            }
-
-            await _inventory.UpdateStockAsync(
-                request.ProductId,
-                inventory.Stock - request.Quantity);
-            
-            var orderId = await _order.CreateAsync(new Order { /* ... */ });
-            results.Succeeded.Add(orderId);
-        }
-
-        // バッチ全体を1トランザクションでCommit
-        return Outcome.Success(results);
-    }, cancellationToken);
-}
-```
+ドメイン層の `internal` メソッド（`Restore`, `SetId` など）は `InternalsVisibleTo` で Infrastructure 層にのみ公開します。
 
 ---
 
@@ -743,34 +551,40 @@ public async Task<OperationResult<BatchResult>> ProcessBatchOrdersAsync(
 ### 1. トランザクションは最小限に保つ
 
 ```csharp
-// ✅ 良い例：DB操作のみトランザクション内
-var orderId = await CreateOrderInTransactionAsync(request);
-await SendNotificationAsync(orderId);
-
-// ❌ 悪い例：外部API呼び出しまでトランザクション内
-return await _uow.ExecuteInTransactionAsync(async () =>
+// ✅ 良い例：DB 操作のみトランザクション内
+var result = await uow.ExecuteInTransactionAsync(async () =>
 {
-    var orderId = await _order.CreateAsync(order);
-    await _externalApi.CallAsync();  // トランザクションが長時間ロック
-    return Outcome.Success(orderId);
+    var orderId = await orderRepo.CreateAsync(order);
+    return Result.Success(orderId);
+}, cancellationToken);
+
+// トランザクション外で外部 API を呼ぶ
+if (result.IsSuccess)
+    await emailService.SendConfirmationAsync(result.Value);
+
+// ❌ 悪い例：外部 API 呼び出しをトランザクション内に含める
+return await uow.ExecuteInTransactionAsync(async () =>
+{
+    var orderId = await orderRepo.CreateAsync(order);
+    await externalApi.CallAsync();  // トランザクションが長時間ロック
+    return Result.Success(orderId);
 }, cancellationToken);
 ```
 
-### 2. ビジネスエラーはResult型で表現
+### 2. ビジネスエラーは Result 型で表現
 
 ```csharp
-// ✅ 良い例：Resultで表現
-if (stock < quantity)
-    return Outcome.BusinessRule(
-        BusinessErrorCode.InsufficientStock.ToErrorCode(),
-        "Insufficient stock");
+// ✅ 良い例：Result で表現（ドメイン層でエラー定義）
+var result = inventory.Decrease(quantity);
+if (result.IsFailure)
+    return Result.Failure<int>(result.Error!);
 
-// ❌ 悪い例：例外で表現
+// ❌ 悪い例：例外でビジネスエラーを表現
 if (stock < quantity)
     throw new BusinessRuleException("Insufficient stock");
 ```
 
-### 3. Repositoryは純粋にデータアクセスのみ
+### 3. Repository は純粋にデータアクセスのみ
 
 ```csharp
 // ✅ Repository：トランザクション管理は一切しない
@@ -778,136 +592,41 @@ public class OrderRepository(IDbSession session) : IOrderRepository
 {
     public async Task<int> CreateAsync(Order order, CancellationToken cancellationToken)
     {
-        return await session.Connection.ExecuteScalarAsync<int>(
-            sql, order, session.Transaction, cancellationToken: cancellationToken);
-    }
-}
-
-// ✅ Service：トランザクション管理とビジネスロジック
-public class OrderService(IUnitOfWork uow, IOrderRepository order) : IOrderService
-{
-    public async Task<OperationResult<int>> CreateOrderAsync(...)
-    {
-        return await uow.ExecuteInTransactionAsync(async () =>
-        {
-            // ビジネスロジック + Repository呼び出し
-            var orderId = await order.CreateAsync(orderEntity);
-            return Outcome.Success(orderId);
-        }, cancellationToken);
+        var command = new CommandDefinition(sql, record, session.Transaction, ...);
+        return await session.Connection.ExecuteScalarAsync<int>(command);
     }
 }
 ```
 
-### 4. エラーコードはenumで定義
+### 4. 2 重トランザクションを避ける
 
 ```csharp
-// ✅ 良い例：enumで定義
-public enum BusinessErrorCode
-{
-    InsufficientStock,
-    InvalidQuantity,
-    OrderExpired
-}
+// ❌ 悪い設計：Service A が UoW を使いながら Service B（も UoW を使用）を呼ぶ
+// → 2 重トランザクション！UnitOfWork が InvalidOperationException をスロー
 
-// 拡張メソッドでUPPER_SNAKE_CASEに変換
-public static string ToErrorCode(this BusinessErrorCode code)
-{
-    return string.Concat(
-        code.ToString()
-            .Select((c, i) => i > 0 && char.IsUpper(c) ? $"_{c}" : c.ToString())
-    ).ToUpperInvariant();
-}
-
-// 使用例
-return Outcome.BusinessRule(
-    BusinessErrorCode.InsufficientStock.ToErrorCode(), // "INSUFFICIENT_STOCK"
-    "Insufficient stock");
-
-// ❌ 悪い例：文字列をハードコーディング
-return Outcome.BusinessRule("INSUFFICIENT_STOCK", "Insufficient stock");
-```
-
-### 5. 2重トランザクションを避ける
-
-```csharp
-// ✅ 良い例：サービスはUoWを使い、別サービスを呼ばない
-public class OrderService(IUnitOfWork uow, IOrderRepository order) : IOrderService
-{
-    public async Task<OperationResult<int>> CreateOrderAsync(...)
-    {
-        return await uow.ExecuteInTransactionAsync(async () =>
-        {
-            var orderId = await order.CreateAsync(orderEntity);
-            return Outcome.Success(orderId);
-        }, cancellationToken);
-    }
-}
-
-// ❌ 悪い例：サービスがUoWを使いながら別サービスを呼ぶ
-public class OrderService(
-    IUnitOfWork uow, 
-    IInventoryService inventoryService) : IOrderService
-{
-    public async Task<OperationResult<int>> CreateOrderAsync(...)
-    {
-        return await uow.ExecuteInTransactionAsync(async () =>
-        {
-            // InventoryServiceも内部でUoWを使っていると2重トランザクション！
-            await inventoryService.UpdateStockAsync(productId, newStock);
-            
-            var orderId = await order.CreateAsync(orderEntity);
-            return Outcome.Success(orderId);
-        }, cancellationToken);
-    }
-}
-
-// ✅ 解決策：Repositoryを直接注入
+// ✅ 良い設計：Service は Repository を直接注入する
 public class OrderService(
     IUnitOfWork uow,
-    IOrderRepository order,
-    IInventoryRepository inventory) : IOrderService
+    IOrderRepository orderRepo,      // ← Repository を直接注入
+    IInventoryRepository inventoryRepo) // ← Repository を直接注入
 {
-    public async Task<OperationResult<int>> CreateOrderAsync(...)
+    public async Task<Result<int>> CreateOrderAsync(...)
     {
         return await uow.ExecuteInTransactionAsync(async () =>
         {
-            await inventory.UpdateStockAsync(productId, newStock);
-            var orderId = await order.CreateAsync(orderEntity);
-            return Outcome.Success(orderId);
+            await inventoryRepo.UpdateStockAsync(...); // Repository を直接呼ぶ
+            var orderId = await orderRepo.CreateAsync(...);
+            return Result.Success(orderId);
         }, cancellationToken);
     }
 }
 ```
-
-**注意**: UnitOfWorkは2重トランザクションを実行時に検出し、InvalidOperationExceptionをスローします。
 
 ---
 
 ## 🔍 トラブルシューティング
 
-### トランザクションがコミットされない
-
-**原因**: ビジネスバリデーションエラーで失敗している
-
-**解決策**: ログを確認し、どのバリデーションで失敗しているか特定
-
-```json
-// appsettings.json
-{
-  "Logging": {
-    "LogLevel": {
-      "OrderManagement": "Debug"
-    }
-  }
-}
-```
-
-**ログ出力例**:
-```
-[Warning] Transaction rolled back due to business failure: [INSUFFICIENT_STOCK] Available: 5, Requested: 10
-```
-
-### 2重トランザクションエラーが発生する
+### 2 重トランザクションエラーが発生する
 
 **エラーメッセージ**:
 ```
@@ -915,84 +634,96 @@ InvalidOperationException: Nested transaction detected!
 ExecuteInTransactionAsync was called while another transaction is already active.
 ```
 
-**原因**: サービスがUoWを使いながら、別のサービス（内部でUoWを使用）を呼んでいる
+**原因**: Service が `ExecuteInTransactionAsync` を使いながら、同じく UoW を使う別の Service を呼んでいる
 
-**解決策**: 
-1. サービス間呼び出しを避け、Repositoryを直接注入する
-2. または、片方のサービスからUoWを削除し、Repositoryのみ使う層とする
+**解決策**: Service 間の呼び出しを避け、Repository を直接注入する
 
 ```csharp
 // ❌ 悪い設計
-Service A (UoW) → Service B (UoW)  // 2重トランザクション！
+Service A (UoW) → Service B (UoW)  // 2 重トランザクション！
 
 // ✅ 良い設計
 Service A (UoW) → Repository B
 Service A (UoW) → Repository C
 ```
 
+### トランザクションがコミットされない
+
+**原因**: ビジネスバリデーションで `Result.Failure` が返されているため、UoW が自動的に Rollback している
+
+**解決策**: ログを確認して失敗しているバリデーションを特定する
+
+```json
+// appsettings.json でデバッグログを有効化
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Debug"
+    }
+  }
+}
+```
+
+**ログ出力例**:
+```
+[Warning] Transaction rolled back due to business failure: Error { Code = Inventory.InsufficientStock, ... }
+```
+
 ### デッドロックが発生する
 
-**原因**: トランザクション内で長時間処理（外部API呼び出し、重い計算）を実行している
+**原因**: トランザクション内で長時間処理（外部 API 呼び出し、重い計算）を実行している
 
-**解決策**: トランザクション外に移動
+**解決策**: DB 操作のみトランザクション内に収め、外部処理はトランザクション外へ移動する
 
-```csharp
-// ❌ 悪い例
-return await uow.ExecuteInTransactionAsync(async () =>
-{
-    var orderId = await order.CreateAsync(orderEntity);
-    await Task.Delay(10000);  // 長時間処理（例）
-    await externalApi.CallAsync();  // 外部API
-    return Outcome.Success(orderId);
-}, cancellationToken);
+---
 
-// ✅ 良い例
-var result = await uow.ExecuteInTransactionAsync(async () =>
-{
-    var orderId = await order.CreateAsync(orderEntity);
-    return Outcome.Success(orderId);
-}, cancellationToken);
+## 📚 Result 型リファレンス
 
-if (result.IsSuccess)
-{
-    await Task.Delay(10000);  // トランザクション外
-    await externalApi.CallAsync();  // トランザクション外
-}
-```
-
-### Repositoryでトランザクションが効かない
-
-**原因**: UoWを使わずに直接Repositoryを呼んでいる
-
-**解決策**: 必ずUoWのExecuteInTransactionAsync経由で実行
+### Result / Result\<T\>
 
 ```csharp
-// ❌ 悪い例：トランザクションなし
-public async Task<OperationResult<int>> CreateOrderAsync(...)
-{
-    var orderId = await _order.CreateAsync(orderEntity);  // トランザクションなし
-    await _inventory.UpdateStockAsync(productId, newStock);  // 別トランザクション
-    return Outcome.Success(orderId);
-}
+// 値なし成功
+Result.Success()
 
-// ✅ 良い例：UoW経由
-public async Task<OperationResult<int>> CreateOrderAsync(...)
-{
-    return await _uow.ExecuteInTransactionAsync(async () =>
-    {
-        var orderId = await _order.CreateAsync(orderEntity);
-        await _inventory.UpdateStockAsync(productId, newStock);
-        return Outcome.Success(orderId);
-    }, cancellationToken);
-}
+// 値あり成功
+Result.Success<T>(value)
+
+// 値なし失敗
+Result.Failure(error)
+
+// 値あり失敗
+Result.Failure<T>(error)
+
+// プロパティ
+result.IsSuccess   // bool
+result.IsFailure   // bool
+result.Error       // Error?（失敗時のみ値を持つ）
+result.Value       // T（成功時のみアクセス可。失敗時は InvalidOperationException）
 ```
+
+### Error ファクトリ
+
+| メソッド | HTTP ステータス | 用途 |
+|---|---|---|
+| `Error.NotFound(code, desc)` | 404 | リソースが見つからない |
+| `Error.Problem(code, desc)` | 400 | ビジネスルール違反 |
+| `Error.Conflict(code, desc)` | 409 | リソース競合 |
+| `Error.Failure(code, desc)` | 500 | システムエラー |
+
+### IActionResult 変換拡張メソッド
+
+| メソッド | 成功時 | 失敗時 |
+|---|---|---|
+| `result.ToOk()` | 200 OK（値そのまま） | ProblemDetails |
+| `result.ToOk(mapper)` | 200 OK（mapper 適用後） | ProblemDetails |
+| `result.ToNoContent()` | 204 No Content | ProblemDetails |
+| `result.ToResult(onSuccess)` | `onSuccess` の戻り値 | ProblemDetails |
 
 ---
 
 ## 🧪 テストの実行
 
 ```bash
-cd Tests
 dotnet test
 ```
 
@@ -1000,168 +731,22 @@ dotnet test
 
 ## 📚 設計ドキュメント
 
-### Result型の詳細
+### UnitOfWork のライフサイクル
 
-#### OperationResult<T> - 値を返す操作
-
-```csharp
-public abstract record OperationResult<T>
-{
-    public sealed record Success(T Value) : OperationResult<T>;
-    public sealed record SuccessEmpty : OperationResult<T>;
-    public sealed record Failure(OperationError Error) : OperationResult<T>;
-}
 ```
+ExecuteInTransactionAsync 呼び出し
+  │
+  ├─ 1. 引数チェック / 破棄チェック / 2重スコープチェック（AsyncLocal）
+  ├─ 2. EnsureConnectionOpenAsync（接続が閉じていれば Open）
+  ├─ 3. BeginTransactionAsync（トランザクション開始）
+  ├─ 4. operation() 実行
+  │     ├─ IsSuccess → CommitTransactionAsync
+  │     └─ IsFailure → RollbackTransactionAsync
+  └─ 5. finally：DisposeTransactionAsync / IsInTransaction.Value = false
 
-**使い分け**:
-- `Success(value)`: 値を返す成功（200 OK, 201 Created）
-- `SuccessEmpty`: 値を返さない成功（204 No Content）
-- `Failure(error)`: 失敗（400/404/409など）
-
-#### OperationResult - 値を返さない操作
-
-```csharp
-public abstract record OperationResult
-{
-    public sealed record Success : OperationResult;
-    public sealed record Failure(OperationError Error) : OperationResult;
-}
+Dispose / DisposeAsync
+  └─ 接続を Close & Dispose（UoW が完全管理）
 ```
-
-**使い分け**:
-- `Success`: 削除・更新など値不要な成功（204 No Content）
-- `Failure(error)`: 失敗（400/404/409など）
-
-#### OperationError - エラーの種類
-
-```csharp
-public abstract record OperationError
-{
-    // リソース系
-    public sealed record NotFound(string? Message = null) : OperationError;
-    
-    // バリデーション系
-    public sealed record ValidationFailed(Dictionary<string, string[]> Errors) : OperationError;
-    
-    // ビジネスルール系
-    public sealed record Conflict(string Message) : OperationError;
-    public sealed record BusinessRule(string Code, string Message) : OperationError;
-    
-    // 権限系
-    public sealed record Unauthorized(string Message = "...") : OperationError;
-    public sealed record Forbidden(string Message = "...") : OperationError;
-}
-```
-
-**HTTPステータスコードへの対応**:
-- `NotFound` → 404 Not Found
-- `ValidationFailed` → 400 Bad Request（フィールドエラー付き）
-- `BusinessRule` → 400 Bad Request（エラーコード付き）
-- `Conflict` → 409 Conflict
-- `Unauthorized` → 401 Unauthorized
-- `Forbidden` → 403 Forbidden
-
-#### Outcome - Resultファクトリ
-
-```csharp
-public static class Outcome
-{
-    // 成功系
-    public static OperationResult<T> Success<T>(T value);
-    public static OperationResult Success();
-    
-    // エラー系
-    public static OperationError NotFound(string? message = null);
-    public static OperationError ValidationFailed(Dictionary<string, string[]> errors);
-    public static OperationError Conflict(string message);
-    public static OperationError BusinessRule(string code, string message);
-    public static OperationError Unauthorized(string message = "...");
-    public static OperationError Forbidden(string message = "...");
-}
-```
-
-### エラーコードの定義
-
-```csharp
-public enum BusinessErrorCode
-{
-    // 在庫関連
-    InsufficientStock,           // → "INSUFFICIENT_STOCK"
-    StockReservationFailed,      // → "STOCK_RESERVATION_FAILED"
-    
-    // 注文関連
-    EmptyOrder,                  // → "EMPTY_ORDER"
-    InvalidQuantity,             // → "INVALID_QUANTITY"
-    OrderExpired,                // → "ORDER_EXPIRED"
-    
-    // 支払い関連
-    PaymentFailed,               // → "PAYMENT_FAILED"
-    InvalidPaymentMethod,        // → "INVALID_PAYMENT_METHOD"
-    
-    // クーポン関連
-    InvalidCoupon,               // → "INVALID_COUPON"
-    CouponConditionNotMet        // → "COUPON_CONDITION_NOT_MET"
-}
-
-// 拡張メソッド
-public static string ToErrorCode(this BusinessErrorCode code)
-{
-    return string.Concat(
-        code.ToString()
-            .Select((c, i) => i > 0 && char.IsUpper(c) ? $"_{c}" : c.ToString())
-    ).ToUpperInvariant();
-}
-```
-
-**フロントエンドでの使用例** (TypeScript):
-
-```typescript
-try {
-    const response = await createOrder(customerId, items);
-    showSuccess('注文が完了しました');
-} catch (error) {
-    if (error.status === 400) {
-        switch (error.code) {
-            case 'INSUFFICIENT_STOCK':
-                showError('在庫不足です。数量を減らしてください。');
-                break;
-            case 'INVALID_QUANTITY':
-                showError('数量が不正です。');
-                break;
-            case 'EMPTY_ORDER':
-                showError('商品を選択してください。');
-                break;
-            default:
-                showError('入力内容を確認してください。');
-        }
-    } else if (error.status === 404) {
-        showError('商品が見つかりません。');
-    } else {
-        showError('予期しないエラーが発生しました。');
-    }
-}
-```
-
----
-
-## 🎓 学習リソース
-
-### 設計パターン
-
-- [Martin Fowler - Unit of Work](https://martinfowler.com/eaaCatalog/unitOfWork.html)
-- [Martin Fowler - Repository Pattern](https://martinfowler.com/eaaCatalog/repository.html)
-- [Microsoft - Repository Pattern](https://docs.microsoft.com/en-us/dotnet/architecture/microservices/microservice-ddd-cqrs-patterns/infrastructure-persistence-layer-design)
-
-### Result型パターン
-
-- [Vladimir Khorikov - Railway Oriented Programming](https://enterprisecraftsmanship.com/posts/railway-oriented-programming/)
-- [Scott Wlaschin - Railway Oriented Programming](https://fsharpforfunandprofit.com/rop/)
-- [Error Handling in C# - Result Pattern](https://www.youtube.com/watch?v=WCCkEe_Hy2Y)
-
-### Dapper
-
-- [Dapper Documentation](https://github.com/DapperLib/Dapper)
-- [Dapper Tutorial](https://dapper-tutorial.net/)
 
 ---
 
@@ -1169,6 +754,7 @@ try {
 
 このプロジェクトは以下の素晴らしいオープンソースプロジェクトに基づいています：
 
-- [Dapper](https://github.com/DapperLib/Dapper) - シンプルで高速なORMマッパー
-- [FluentValidation](https://github.com/FluentValidation/FluentValidation) - 強力なバリデーションライブラリ
-- [SQLite](https://www.sqlite.org/) - 組み込み型データベース
+- [Dapper](https://github.com/DapperLib/Dapper) — シンプルで高速な O/R マッパー
+- [FluentValidation](https://github.com/FluentValidation/FluentValidation) — 強力なバリデーションライブラリ
+- [Scalar](https://scalar.com/) — モダンな API ドキュメント UI
+- [SQLite](https://www.sqlite.org/) — 組み込み型データベース
